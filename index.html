@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistický terminál - expedice zásilek</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Logistický terminál</h1>
+        <p class="podtitulek">Expediční manifest pro odbavení zásilek</p>
+    </header>
+
+    <main>
+        <section id="manifest">
+            <h2>Manifest zásilek</h2>
+            <table id="tabulka-manifest">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Typ balíku</th>
+                        <th>Cílová adresa</th>
+                        <th>Váha</th>
+                        <th>Vzdálenost</th>
+                        <th>Přeprava</th>
+                        <th>Cena (Kč)</th>
+                    </tr>
+                </thead>
+                <tbody id="manifest-body">
+                    <!-- Řádky se generují z TypeScriptu -->
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <footer>
+        <p>Školní projekt &middot; Fáze 1</p>
+    </footer>
+
+    <script type="module" src="dist/main.js"></script>
+</body>
+</html>

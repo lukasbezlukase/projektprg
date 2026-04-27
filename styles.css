@@ -1,0 +1,82 @@
+/* Zakladni styly pro fazi 1 - cista sazba, bez ozdob.
+   Vzhled bude dotazen ve fazi 3. */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f5f7;
+    color: #1f2933;
+    margin: 0;
+    padding: 0;
+    line-height: 1.5;
+}
+
+header {
+    background: #1f2933;
+    color: #fff;
+    padding: 1.5rem 2rem;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.6rem;
+}
+
+.podtitulek {
+    margin: 0.25rem 0 0;
+    color: #cbd2d9;
+    font-size: 0.95rem;
+}
+
+main {
+    max-width: 1100px;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+}
+
+section {
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+section h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #e4e7eb;
+    padding-bottom: 0.5rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.55rem 0.5rem;
+    border-bottom: 1px solid #e4e7eb;
+}
+
+th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #52606d;
+}
+
+tbody tr:hover {
+    background: #f9fafb;
+}
+
+footer {
+    text-align: center;
+    color: #7b8794;
+    padding: 1.5rem;
+    font-size: 0.85rem;
+}
