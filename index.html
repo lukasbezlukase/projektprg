@@ -13,6 +13,60 @@
     </header>
 
     <main>
+        <section id="formular-zasilky">
+            <h2>Nová zásilka</h2>
+            <form id="form-pridat" novalidate>
+                <div class="pole">
+                    <label for="vstup-adresa">Cílová adresa</label>
+                    <input type="text" id="vstup-adresa" placeholder="Praha 1, Jindřišská 24" required>
+                </div>
+
+                <div class="pole-radek">
+                    <div class="pole">
+                        <label for="vstup-vaha">Váha (kg)</label>
+                        <input type="number" id="vstup-vaha" min="0.01" step="0.01" required>
+                    </div>
+                    <div class="pole">
+                        <label for="vstup-vzdalenost">Vzdálenost (km)</label>
+                        <input type="number" id="vstup-vzdalenost" min="1" step="1" required>
+                    </div>
+                </div>
+
+                <div class="pole">
+                    <label for="vstup-preprava">Typ přepravy</label>
+                    <select id="vstup-preprava" required>
+                        <!-- Naplní se z TS z číselníku KATALOG_PREPRAVY -->
+                    </select>
+                </div>
+
+                <fieldset class="pole">
+                    <legend>Typ balíku</legend>
+                    <label class="radio">
+                        <input type="radio" name="typ-baliku" value="krehky" checked>
+                        Křehký
+                    </label>
+                    <label class="radio">
+                        <input type="radio" name="typ-baliku" value="nadrozmerny">
+                        Nadrozměrný
+                    </label>
+                </fieldset>
+
+                <div class="pole" id="pole-hodnota">
+                    <label for="vstup-hodnota">Deklarovaná hodnota zboží (Kč)</label>
+                    <input type="number" id="vstup-hodnota" min="1" step="1">
+                </div>
+
+                <div class="pole" id="pole-delka" hidden>
+                    <label for="vstup-delka">Délka balíku (m)</label>
+                    <input type="number" id="vstup-delka" min="0.1" step="0.1">
+                </div>
+
+                <p id="form-error" class="chyba" role="alert"></p>
+
+                <button type="submit">Přidat na manifest</button>
+            </form>
+        </section>
+
         <section id="manifest">
             <h2>Manifest zásilek</h2>
             <table id="tabulka-manifest">
@@ -25,6 +79,7 @@
                         <th>Vzdálenost</th>
                         <th>Přeprava</th>
                         <th>Cena (Kč)</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="manifest-body">
