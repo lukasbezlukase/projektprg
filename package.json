@@ -1,0 +1,13 @@
+{
+  "name": "logisticky-terminal",
+  "version": "0.1.0",
+  "description": "Skolní projekt - Logistický terminál (expedice zásilek)",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
