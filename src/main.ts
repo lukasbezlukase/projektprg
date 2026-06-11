@@ -1,18 +1,23 @@
 /**
- * Vstupni bod aplikace.
+ * Vstupni bod aplikace - orchestrace stavu a propojeni s DOMem.
  *
- * FAZE 1 - jen overeni, ze trida + potomci + ciselnik fungujou dohromady.
- * Vyrobime par hardcoded zasilek a vykreslime je do tabulky #manifest-body.
- * Formular pro pridavani novych polozek prijde ve fazi 2.
+ * Drzi pole zasilek (kolekce), nastavi handlery na formular a tlacitka,
+ * a po kazde zmene zavola vykresliManifest(). Ostatni veci (vypocty, render)
+ * delegujeme do vlastnich modulu.
+ *
+ * FAZE 1: hardcoded zasilky, jen vykresleni.
+ * FAZE 2: pridani formulare pro vlozeni nove zasilky a mazani polozek.
+ * FAZE 3: souhrn, lepsi validace, polish.
  */
 
 import { KATALOG_PREPRAVY, najdiTypPrepravy } from "./data.js";
 import { Zasilka } from "./Zasilka.js";
 import { KrehkyBalik } from "./KrehkyBalik.js";
 import { NadrozmernyBalik } from "./NadrozmernyBalik.js";
+import { vykresliManifest, naplnSelectPrepravy } from "./render.js";
 
-// Pomocne reference do ciselniku - kdyz nejaky zaznam chybi, padne to hned tady
-// pri startu, ne pozdeji nekde uprostred vykreslovani.
+// ---------- inicializace stavu ----------
+
 const STANDARD = najdiTypPrepravy("STD");
 const EXPRES = najdiTypPrepravy("EXP");
 const CARGO = najdiTypPrepravy("CRG");
@@ -20,56 +25,133 @@ if (!STANDARD || !EXPRES || !CARGO) {
     throw new Error("Datový číselník neobsahuje očekávané typy přepravy.");
 }
 
-/**
- * Kolekce zasilek - klicovy bod polymorfismu.
- *
- * Pole je typu Zasilka[], ale obsahuje mix KrehkyBalik a NadrozmernyBalik.
- * Pri vykresleni voláme vypoctiCenu()/typBalku() na bázové třídě a runtime
- * si sám zvolí správnou implementaci podle skutečného typu objektu.
- */
+/** Hlavni kolekce zasilek - prvotne predvyplnena nekolika ukazkami. */
 const zasilky: Zasilka[] = [
     new KrehkyBalik(2.5, 120, "Praha 1, Jindřišská 24", EXPRES, 15000),
     new NadrozmernyBalik(80, 230, "Brno, Veveří 5", CARGO, 2.4),
     new KrehkyBalik(1.2, 80, "Plzeň, Klatovská 12", STANDARD, 4500),
-    new NadrozmernyBalik(45, 310, "Ostrava, Nádražní 18", CARGO, 1.8),
 ];
 
-/**
- * Vykresli manifest do tabulky.
- * Funkce zameuje pouze radky tbody - hlavicka tabulky je staticka v HTML.
- */
-function vykresliManifest(seznam: ReadonlyArray<Zasilka>): void {
-    const telo = document.querySelector<HTMLTableSectionElement>("#manifest-body");
-    if (!telo) {
-        // V produkci by tady byl logger; pro skolni projekt staci konzole.
-        console.error("V HTML chybí element #manifest-body.");
-        return;
-    }
+// ---------- helpery pro praci s kolekci ----------
 
-    telo.innerHTML = "";
-
-    for (const zasilka of seznam) {
-        const radek = document.createElement("tr");
-
-        // Polymorfismus: tady volame metody bazove tridy, ale JS vola
-        // implementaci konkretni podtridy (KrehkyBalik / NadrozmernyBalik).
-        radek.innerHTML = `
-            <td>${zasilka.id}</td>
-            <td>${zasilka.typBalku()}</td>
-            <td>${zasilka.cilovaAdresa}</td>
-            <td>${zasilka.vahaKg.toFixed(2)} kg</td>
-            <td>${zasilka.vzdalenostKm} km</td>
-            <td>${zasilka.nazevPrepravy}</td>
-            <td>${zasilka.vypoctiCenu().toFixed(2)} Kč</td>
-        `;
-        telo.appendChild(radek);
+/** Smaze zasilku podle ID a prekreslime manifest. */
+function smazatZasilku(id: number): void {
+    const idx = zasilky.findIndex((z) => z.id === id);
+    if (idx >= 0) {
+        zasilky.splice(idx, 1);
+        prerender();
     }
 }
 
-// Pri prvnim nacteni vykreslime hardcoded ukazku.
-// Ve fazi 2 se sem prida i renderovani pri zmene formulare / pridani polozky.
-vykresliManifest(zasilky);
+/** Pridame zasilku do kolekce a prekreslime manifest. */
+function pridatZasilku(z: Zasilka): void {
+    zasilky.push(z);
+    prerender();
+}
 
-// Pomocny vystup do konzole - usnadnuje rucni overeni vypoctu pri ladeni.
-console.info("Načteno typů přepravy:", KATALOG_PREPRAVY.length);
-console.info("Načteno zásilek:", zasilky.length);
+/** Centralni rerender - pri kazde zmene kolekce ho zavolame. */
+function prerender(): void {
+    vykresliManifest(zasilky, smazatZasilku);
+}
+
+// ---------- formular ----------
+
+/**
+ * Prepinaci logika mezi typem balku - ukaze pole 'hodnota zbozi'
+ * pro krehky, 'delka' pro nadrozmerny, druhe schove.
+ */
+function nastavViditelnostPoli(): void {
+    const krehky = (document.querySelector<HTMLInputElement>("input[name='typ-baliku']:checked")?.value === "krehky");
+    const poleHodnota = document.querySelector<HTMLElement>("#pole-hodnota");
+    const poleDelka = document.querySelector<HTMLElement>("#pole-delka");
+    if (poleHodnota) poleHodnota.hidden = !krehky;
+    if (poleDelka) poleDelka.hidden = krehky;
+}
+
+/**
+ * Vyzobne hodnoty z formulare a zkusi vyrobit objekt Zasilka.
+ * V pripade chyby (validace v setteru / konstruktoru) vyhodi vyjimku.
+ */
+function vyrobZasilkuZFormulare(): Zasilka {
+    const adresa = (document.querySelector<HTMLInputElement>("#vstup-adresa")?.value ?? "").trim();
+    const vaha = Number(document.querySelector<HTMLInputElement>("#vstup-vaha")?.value);
+    const vzdalenost = Number(document.querySelector<HTMLInputElement>("#vstup-vzdalenost")?.value);
+    const idPrepravy = document.querySelector<HTMLSelectElement>("#vstup-preprava")?.value ?? "";
+    const typBaliku = document.querySelector<HTMLInputElement>("input[name='typ-baliku']:checked")?.value ?? "";
+
+    const typPrepravy = najdiTypPrepravy(idPrepravy);
+    if (!typPrepravy) {
+        throw new Error("Vyberte platný typ přepravy.");
+    }
+
+    if (typBaliku === "krehky") {
+        const hodnota = Number(document.querySelector<HTMLInputElement>("#vstup-hodnota")?.value);
+        // Konstruktor + settery si validaci zaridi sami a pripadne hodi chybu.
+        return new KrehkyBalik(vaha, vzdalenost, adresa, typPrepravy, hodnota);
+    } else if (typBaliku === "nadrozmerny") {
+        const delka = Number(document.querySelector<HTMLInputElement>("#vstup-delka")?.value);
+        return new NadrozmernyBalik(vaha, vzdalenost, adresa, typPrepravy, delka);
+    }
+    throw new Error("Vyberte typ balíku.");
+}
+
+/** Hlavni handler odeslani formulare. */
+function onSubmitFormulare(event: SubmitEvent): void {
+    event.preventDefault();
+
+    const chyba = document.querySelector<HTMLElement>("#form-error");
+    if (chyba) chyba.textContent = "";
+
+    try {
+        const novaZasilka = vyrobZasilkuZFormulare();
+        pridatZasilku(novaZasilka);
+        // Po uspesnem pridani vyresetujeme formular, ale ponechame vybrany
+        // typ prepravy a typ baliku - vetsina uzivatelu pridava vice zasilek
+        // se stejnym nastavenim za sebou.
+        const form = event.currentTarget as HTMLFormElement;
+        const adresa = form.querySelector<HTMLInputElement>("#vstup-adresa");
+        const vaha = form.querySelector<HTMLInputElement>("#vstup-vaha");
+        const vzdal = form.querySelector<HTMLInputElement>("#vstup-vzdalenost");
+        const hodnota = form.querySelector<HTMLInputElement>("#vstup-hodnota");
+        const delka = form.querySelector<HTMLInputElement>("#vstup-delka");
+        if (adresa) adresa.value = "";
+        if (vaha) vaha.value = "";
+        if (vzdal) vzdal.value = "";
+        if (hodnota) hodnota.value = "";
+        if (delka) delka.value = "";
+        adresa?.focus();
+    } catch (e) {
+        if (chyba && e instanceof Error) {
+            chyba.textContent = e.message;
+        }
+    }
+}
+
+// ---------- bootstrap ----------
+
+function init(): void {
+    naplnSelectPrepravy(KATALOG_PREPRAVY);
+    nastavViditelnostPoli();
+
+    // Prepinani poli pri zmene typu baliku
+    document.querySelectorAll<HTMLInputElement>("input[name='typ-baliku']").forEach((radio) => {
+        radio.addEventListener("change", nastavViditelnostPoli);
+    });
+
+    // Submit formulare
+    const form = document.querySelector<HTMLFormElement>("#form-pridat");
+    form?.addEventListener("submit", onSubmitFormulare);
+
+    // Prvni vykresleni
+    prerender();
+
+    console.info("Načteno typů přepravy:", KATALOG_PREPRAVY.length);
+    console.info("Načteno zásilek:", zasilky.length);
+}
+
+// Vyckame na DOMContentLoaded - pro jistotu, kdyby skript byl nahran drive.
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+} else {
+    init();
+}
