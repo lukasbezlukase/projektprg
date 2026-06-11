@@ -21,5 +21,5 @@ Poté otevřít `index.html` v prohlížeči (např. přes Live Server v VS Code
 ## Stav projektu
 
 - [x] **Fáze 1** – návrh OOP architektury, datový číselník, statické vykreslení manifestu
-- [ ] Fáze 2 – formulář pro přidávání zásilek, dynamický rerender
+- [x] **Fáze 2** – formulář pro přidávání zásilek, dynamický rerender
 - [ ] Fáze 3 – souhrn, validace, finální vzhled
