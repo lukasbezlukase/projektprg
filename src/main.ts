@@ -1,18 +1,23 @@
 /**
- * Vstupni bod aplikace.
+ * Vstupni bod aplikace - orchestrace stavu a propojeni s DOMem.
  *
- * FAZE 1 - jen overeni, ze trida + potomci + ciselnik fungujou dohromady.
- * Vyrobime par hardcoded zasilek a vykreslime je do tabulky #manifest-body.
- * Formular pro pridavani novych polozek prijde ve fazi 2.
+ * Drzi pole zasilek (kolekce), nastavi handlery na formular a tlacitka,
+ * a po kazde zmene zavola vykresliManifest(). Ostatni veci (vypocty, render)
+ * delegujeme do vlastnich modulu.
+ *
+ * FAZE 1: hardcoded zasilky, jen vykresleni.
+ * FAZE 2: pridani formulare pro vlozeni nove zasilky a mazani polozek.
+ * FAZE 3: souhrn, lepsi validace, polish.
  */
 
 import { KATALOG_PREPRAVY, najdiTypPrepravy } from "./data.js";
 import { Zasilka } from "./Zasilka.js";
 import { KrehkyBalik } from "./KrehkyBalik.js";
 import { NadrozmernyBalik } from "./NadrozmernyBalik.js";
+import { vykresliManifest, naplnSelectPrepravy, vykresliSouhrn } from "./render.js";
 
-// Pomocne reference do ciselniku - kdyz nejaky zaznam chybi, padne to hned tady
-// pri startu, ne pozdeji nekde uprostred vykreslovani.
+// ---------- inicializace stavu ----------
+
 const STANDARD = najdiTypPrepravy("STD");
 const EXPRES = najdiTypPrepravy("EXP");
 const CARGO = najdiTypPrepravy("CRG");
@@ -20,56 +25,224 @@ if (!STANDARD || !EXPRES || !CARGO) {
     throw new Error("Datový číselník neobsahuje očekávané typy přepravy.");
 }
 
-/**
- * Kolekce zasilek - klicovy bod polymorfismu.
- *
- * Pole je typu Zasilka[], ale obsahuje mix KrehkyBalik a NadrozmernyBalik.
- * Pri vykresleni voláme vypoctiCenu()/typBalku() na bázové třídě a runtime
- * si sám zvolí správnou implementaci podle skutečného typu objektu.
- */
+/** Hlavni kolekce zasilek - prvotne predvyplnena nekolika ukazkami. */
 const zasilky: Zasilka[] = [
     new KrehkyBalik(2.5, 120, "Praha 1, Jindřišská 24", EXPRES, 15000),
     new NadrozmernyBalik(80, 230, "Brno, Veveří 5", CARGO, 2.4),
     new KrehkyBalik(1.2, 80, "Plzeň, Klatovská 12", STANDARD, 4500),
-    new NadrozmernyBalik(45, 310, "Ostrava, Nádražní 18", CARGO, 1.8),
 ];
 
-/**
- * Vykresli manifest do tabulky.
- * Funkce zameuje pouze radky tbody - hlavicka tabulky je staticka v HTML.
- */
-function vykresliManifest(seznam: ReadonlyArray<Zasilka>): void {
-    const telo = document.querySelector<HTMLTableSectionElement>("#manifest-body");
-    if (!telo) {
-        // V produkci by tady byl logger; pro skolni projekt staci konzole.
-        console.error("V HTML chybí element #manifest-body.");
-        return;
-    }
+// ---------- helpery pro praci s kolekci ----------
 
-    telo.innerHTML = "";
-
-    for (const zasilka of seznam) {
-        const radek = document.createElement("tr");
-
-        // Polymorfismus: tady volame metody bazove tridy, ale JS vola
-        // implementaci konkretni podtridy (KrehkyBalik / NadrozmernyBalik).
-        radek.innerHTML = `
-            <td>${zasilka.id}</td>
-            <td>${zasilka.typBalku()}</td>
-            <td>${zasilka.cilovaAdresa}</td>
-            <td>${zasilka.vahaKg.toFixed(2)} kg</td>
-            <td>${zasilka.vzdalenostKm} km</td>
-            <td>${zasilka.nazevPrepravy}</td>
-            <td>${zasilka.vypoctiCenu().toFixed(2)} Kč</td>
-        `;
-        telo.appendChild(radek);
+/** Smaze zasilku podle ID a prekreslime manifest. */
+function smazatZasilku(id: number): void {
+    const idx = zasilky.findIndex((z) => z.id === id);
+    if (idx >= 0) {
+        zasilky.splice(idx, 1);
+        prerender();
     }
 }
 
-// Pri prvnim nacteni vykreslime hardcoded ukazku.
-// Ve fazi 2 se sem prida i renderovani pri zmene formulare / pridani polozky.
-vykresliManifest(zasilky);
+/** Pridame zasilku do kolekce a prekreslime manifest. */
+function pridatZasilku(z: Zasilka): void {
+    zasilky.push(z);
+    prerender();
+}
 
-// Pomocny vystup do konzole - usnadnuje rucni overeni vypoctu pri ladeni.
-console.info("Načteno typů přepravy:", KATALOG_PREPRAVY.length);
-console.info("Načteno zásilek:", zasilky.length);
+/** Centralni rerender - pri kazde zmene kolekce ho zavolame. */
+function prerender(): void {
+    vykresliManifest(zasilky, smazatZasilku);
+    vykresliSouhrn(zasilky);
+}
+
+// ---------- formular ----------
+
+/**
+ * Prepinaci logika mezi typem balku - ukaze pole 'hodnota zbozi'
+ * pro krehky, 'delka' pro nadrozmerny, druhe schove.
+ */
+function nastavViditelnostPoli(): void {
+    const krehky = (document.querySelector<HTMLInputElement>("input[name='typ-baliku']:checked")?.value === "krehky");
+    const poleHodnota = document.querySelector<HTMLElement>("#pole-hodnota");
+    const poleDelka = document.querySelector<HTMLElement>("#pole-delka");
+    if (poleHodnota) poleHodnota.hidden = !krehky;
+    if (poleDelka) poleDelka.hidden = krehky;
+}
+
+/** Chyby validace ve formulari - drzi pole {id pole, hlaska}. */
+class ValidacniChyba extends Error {
+    constructor(public readonly polozky: ReadonlyArray<{ id: string; zprava: string }>) {
+        super(polozky.map((p) => p.zprava).join(" "));
+        this.name = "ValidacniChyba";
+    }
+}
+
+/** Vrati cislo z inputu nebo NaN, pokud je prazdny / neplatny. */
+function cisloZInputu(selektor: string): number {
+    const raw = document.querySelector<HTMLInputElement>(selektor)?.value ?? "";
+    if (raw.trim() === "") return NaN;
+    return Number(raw);
+}
+
+/**
+ * Validuje hodnoty z formulare po polich a vyrobi instanci Zasilka.
+ *
+ * Validace se dela predem (ne az v setterech), aby slo chyby pripsat
+ * konkretnimu inputu a ten zvyraznit. Settery v tridach pak slouzi
+ * jako safety net - pokud by se snad data dostala odjinud nez z formulare,
+ * stale se nepusti dovnitr neplatna zasilka.
+ */
+function vyrobZasilkuZFormulare(): Zasilka {
+    const chyby: { id: string; zprava: string }[] = [];
+
+    const adresa = (document.querySelector<HTMLInputElement>("#vstup-adresa")?.value ?? "").trim();
+    if (adresa.length === 0) {
+        chyby.push({ id: "vstup-adresa", zprava: "Vyplňte cílovou adresu." });
+    }
+
+    const vaha = cisloZInputu("#vstup-vaha");
+    if (!Number.isFinite(vaha) || vaha <= 0) {
+        chyby.push({ id: "vstup-vaha", zprava: "Váha musí být kladné číslo (kg)." });
+    }
+
+    const vzdalenost = cisloZInputu("#vstup-vzdalenost");
+    if (!Number.isFinite(vzdalenost) || vzdalenost <= 0) {
+        chyby.push({ id: "vstup-vzdalenost", zprava: "Vzdálenost musí být kladné číslo (km)." });
+    }
+
+    const idPrepravy = document.querySelector<HTMLSelectElement>("#vstup-preprava")?.value ?? "";
+    const typPrepravy = najdiTypPrepravy(idPrepravy);
+    if (!typPrepravy) {
+        chyby.push({ id: "vstup-preprava", zprava: "Vyberte typ přepravy z nabídky." });
+    }
+
+    const typBaliku = document.querySelector<HTMLInputElement>("input[name='typ-baliku']:checked")?.value ?? "";
+
+    let hodnota = NaN;
+    let delka = NaN;
+    if (typBaliku === "krehky") {
+        hodnota = cisloZInputu("#vstup-hodnota");
+        if (!Number.isFinite(hodnota) || hodnota <= 0) {
+            chyby.push({ id: "vstup-hodnota", zprava: "Vyplňte deklarovanou hodnotu zboží." });
+        }
+    } else if (typBaliku === "nadrozmerny") {
+        delka = cisloZInputu("#vstup-delka");
+        if (!Number.isFinite(delka) || delka <= 0) {
+            chyby.push({ id: "vstup-delka", zprava: "Vyplňte délku balíku v metrech." });
+        }
+    }
+
+    if (chyby.length > 0 || !typPrepravy) {
+        throw new ValidacniChyba(chyby);
+    }
+
+    if (typBaliku === "krehky") {
+        return new KrehkyBalik(vaha, vzdalenost, adresa, typPrepravy, hodnota);
+    }
+    return new NadrozmernyBalik(vaha, vzdalenost, adresa, typPrepravy, delka);
+}
+
+/** Vyznaci pole jako neplatne (cervene orámování). */
+function oznacNeplatne(polozky: ReadonlyArray<{ id: string; zprava: string }>): void {
+    for (const polozka of polozky) {
+        const el = document.getElementById(polozka.id);
+        if (el) {
+            el.classList.add("neplatne");
+            el.setAttribute("aria-invalid", "true");
+        }
+    }
+}
+
+/** Vycisti vsechny vyznaceni neplatnosti ve formulari. */
+function smazOznaceniChyb(): void {
+    document.querySelectorAll<HTMLElement>("#form-pridat .neplatne").forEach((el) => {
+        el.classList.remove("neplatne");
+        el.removeAttribute("aria-invalid");
+    });
+    const chyba = document.querySelector<HTMLElement>("#form-error");
+    if (chyba) chyba.textContent = "";
+}
+
+/** Hlavni handler odeslani formulare. */
+function onSubmitFormulare(event: SubmitEvent): void {
+    event.preventDefault();
+
+    smazOznaceniChyb();
+
+    const chyba = document.querySelector<HTMLElement>("#form-error");
+
+    try {
+        const novaZasilka = vyrobZasilkuZFormulare();
+        pridatZasilku(novaZasilka);
+        // Po uspesnem pridani vyresetujeme formular, ale ponechame vybrany
+        // typ prepravy a typ baliku - vetsina uzivatelu pridava vice zasilek
+        // se stejnym nastavenim za sebou.
+        const form = event.currentTarget as HTMLFormElement;
+        const adresa = form.querySelector<HTMLInputElement>("#vstup-adresa");
+        const vaha = form.querySelector<HTMLInputElement>("#vstup-vaha");
+        const vzdal = form.querySelector<HTMLInputElement>("#vstup-vzdalenost");
+        const hodnota = form.querySelector<HTMLInputElement>("#vstup-hodnota");
+        const delka = form.querySelector<HTMLInputElement>("#vstup-delka");
+        if (adresa) adresa.value = "";
+        if (vaha) vaha.value = "";
+        if (vzdal) vzdal.value = "";
+        if (hodnota) hodnota.value = "";
+        if (delka) delka.value = "";
+        adresa?.focus();
+    } catch (e) {
+        if (e instanceof ValidacniChyba) {
+            oznacNeplatne(e.polozky);
+            if (chyba) {
+                chyba.textContent = e.polozky.length === 1
+                    ? e.polozky[0]!.zprava
+                    : `Opravte ${e.polozky.length} polí ve formuláři.`;
+            }
+            // Skok kurzoru do prvniho problemoveho pole pro pohodlne opraveni.
+            const prvni = e.polozky[0];
+            if (prvni) {
+                document.getElementById(prvni.id)?.focus();
+            }
+        } else if (chyba && e instanceof Error) {
+            chyba.textContent = e.message;
+        }
+    }
+}
+
+// ---------- bootstrap ----------
+
+function init(): void {
+    naplnSelectPrepravy(KATALOG_PREPRAVY);
+    nastavViditelnostPoli();
+
+    // Prepinani poli pri zmene typu baliku
+    document.querySelectorAll<HTMLInputElement>("input[name='typ-baliku']").forEach((radio) => {
+        radio.addEventListener("change", nastavViditelnostPoli);
+    });
+
+    // Submit formulare
+    const form = document.querySelector<HTMLFormElement>("#form-pridat");
+    form?.addEventListener("submit", onSubmitFormulare);
+
+    // Pri zacatku psani v jakemkoli poli zrusime zvyrazneni chyby - lepsi UX,
+    // uzivatel hned vidi ze je to OK a nemusi nic resetovat rucne.
+    form?.addEventListener("input", (ev) => {
+        const cil = ev.target as HTMLElement | null;
+        if (cil && cil.classList.contains("neplatne")) {
+            cil.classList.remove("neplatne");
+            cil.removeAttribute("aria-invalid");
+        }
+    });
+
+    // Prvni vykresleni
+    prerender();
+
+    console.info("Načteno typů přepravy:", KATALOG_PREPRAVY.length);
+    console.info("Načteno zásilek:", zasilky.length);
+}
+
+// Vyckame na DOMContentLoaded - pro jistotu, kdyby skript byl nahran drive.
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+} else {
+    init();
+}
